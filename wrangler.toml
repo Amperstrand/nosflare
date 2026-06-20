@@ -3,17 +3,20 @@ name = "nosflare"
 compatibility_date = "2025-01-04"
 main = "worker.js"
 
+routes = [
+  { pattern = "relay.cashu.email", custom_domain = true }
+]
+
 # Durable Objects binding
 [[durable_objects.bindings]]
 name = "RELAY_WEBSOCKET"
 class_name = "RelayWebSocket"
 
 # D1 Database binding
-# Important! Change name and id settings to your own
 [[d1_databases]]
 binding = "RELAY_DATABASE"
 database_name = "nostr-relay"
-database_id = "ba4f97db-cc23-4ea0-b7da-cf8ddc3d84ef"
+database_id = "94807ebd-6404-42a0-ab43-941958f416c1"
 
 # Cron trigger for 24hr database maintenance
 [triggers]
