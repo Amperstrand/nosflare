@@ -28,7 +28,7 @@ cpu_ms = 300000
 
 # Enable logs (off by default, but can enable)
 [observability.logs]
-enabled = false
+enabled = true
 
 # Durable Object migration with SQLite storage backend
 [[migrations]]
