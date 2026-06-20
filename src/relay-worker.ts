@@ -1786,8 +1786,8 @@ function serveLandingPage(): Response {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="A serverless Nostr relay through Cloudflare Worker and D1 database" />
-    <title>Nosflare - Nostr Relay</title>
+    <meta name="description" content="Experimental Nostr relay — free and open, but expect short-lived event retention while in beta." />
+    <title>cashu.email relay</title>
     <style>
         * {
             margin: 0;
@@ -1964,7 +1964,7 @@ function serveLandingPage(): Response {
 <body>
     <div class="container">
         <img src="https://nosflare.com/images/nosflare.png" alt="Nosflare Logo" class="logo">
-        <p class="tagline">A serverless Nostr relay powered by Cloudflare</p>
+        <p class="tagline">Experimental Nostr relay — free and open, but expect short-lived event retention while in beta.</p>
         
         ${payToRelaySection}
         
