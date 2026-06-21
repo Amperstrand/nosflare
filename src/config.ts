@@ -18,8 +18,8 @@ export const AUTH_TIMEOUT_MS = 600000; // 10 minutes - how long the challenge is
 // Relay info
 export const relayInfo: RelayInfo = {
   name: "cashu.email relay",
-  description: "Experimental Nostr relay on cashu.email — free and open, but expect short-lived event retention while in beta.",
-  pubkey: "",
+  description: "Nostr relay on cashu.email — free and open.",
+  pubkey: "9a515b0f08d554b582e54202c7ca0e6ee56d81559957cbf9b40047d391b95fd5",
   contact: "",
   supported_nips: [1, 2, 4, 5, 9, 11, 12, 13, 15, 16, 17, 20, 22, 25, 28, 33, 40, 42, 57],
   software: "https://github.com/Spl0itable/nosflare",

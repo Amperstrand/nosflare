@@ -538,7 +538,7 @@ export class RelayWebSocket implements DurableObject {
       subscriptions: new Map(),
       pubkeyRateLimiter: new RateLimiter(PUBKEY_RATE_LIMIT.rate, PUBKEY_RATE_LIMIT.capacity),
       reqRateLimiter: new RateLimiter(REQ_RATE_LIMIT.rate, REQ_RATE_LIMIT.capacity),
-      bookmark: 'first-unconstrained',
+      bookmark: 'first-primary',
       host,
       challenge: AUTH_REQUIRED ? this.generateAuthChallenge() : undefined,
       authenticatedPubkeys: new Set()
