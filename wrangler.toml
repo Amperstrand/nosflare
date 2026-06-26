@@ -26,6 +26,10 @@ crons = ["0 0 * * *"]
 [limits]
 cpu_ms = 300000
 
+# Environment variables
+[vars]
+DEBUG_NOSFLARE = "false"
+
 # Enable logs (off by default, but can enable)
 [observability.logs]
 enabled = true

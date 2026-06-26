@@ -29,7 +29,7 @@ const MAX_QUERY_COMPLEXITY = 1000;
 const CHUNK_SIZE = 500;
 
 // Database initialization
-async function initializeDatabase(db: D1Database): Promise<void> {
+async function initializeDatabase(db: D1Database, debug: boolean): Promise<void> {
   const dropSession = db.withSession('first-primary');
 
   try {
@@ -203,7 +203,9 @@ async function initializeDatabase(db: D1Database): Promise<void> {
     const currentVersion = versionResult ? parseInt(versionResult.value) : 0;
 
     if (currentVersion < 5) {
-      console.log('Migrating to schema version 5: adding and populating tag columns in events table...');
+      if (debug) {
+        console.log('Migrating to schema version 5: adding and populating tag columns in events table...');
+      }
 
       // Add tag columns if they don't exist (for databases created before these columns were in CREATE TABLE)
       const v5Columns = ['tag_p', 'tag_e', 'tag_a', 'tag_t', 'tag_d', 'tag_r'];
@@ -232,11 +234,15 @@ async function initializeDatabase(db: D1Database): Promise<void> {
         )
       `).run();
 
-      console.log('Schema v5 migration completed');
+      if (debug) {
+        console.log('Schema v5 migration completed');
+      }
     }
 
     if (currentVersion < 6) {
-      console.log('Migrating to schema version 6: adding L/s/u tags and thread metadata...');
+      if (debug) {
+        console.log('Migrating to schema version 6: adding L/s/u tags and thread metadata...');
+      }
 
       // Add columns if they don't exist (for databases created before these columns were in CREATE TABLE)
       const v6Columns = ['tag_L', 'tag_s', 'tag_u', 'reply_to_event_id', 'root_event_id', 'content_preview'];
@@ -274,7 +280,9 @@ async function initializeDatabase(db: D1Database): Promise<void> {
         ) OR LENGTH(content) > 0
       `).run();
 
-      console.log('Schema v6 migration completed');
+      if (debug) {
+        console.log('Schema v6 migration completed');
+      }
     }
 
     await session.prepare(
@@ -2507,7 +2515,7 @@ export default {
         } else {
           // Initialize database in background
           ctx.waitUntil(
-            initializeDatabase(env.RELAY_DATABASE)
+            initializeDatabase(env.RELAY_DATABASE, env.DEBUG_NOSFLARE === 'true')
               .catch(e => console.error("DB init error:", e))
           );
           return serveLandingPage();

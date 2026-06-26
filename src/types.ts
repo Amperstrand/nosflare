@@ -56,6 +56,7 @@ export interface QueryResult {
 export interface Env {
   RELAY_DATABASE: D1Database;
   RELAY_WEBSOCKET: DurableObjectNamespace;
+  DEBUG_NOSFLARE?: string;
 }
 
 // Durable Object types

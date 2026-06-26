@@ -46,6 +46,7 @@ export class RelayWebSocket implements DurableObject {
   private region: string;
   private doId: string;
   private doName: string;
+  private debug: boolean;
   private processedEvents: Map<string, number> = new Map(); // eventId -> timestamp
 
   // Query cache for REQ messages
@@ -97,6 +98,7 @@ export class RelayWebSocket implements DurableObject {
     this.state = state;
     this.sessions = new Map();
     this.env = env;
+    this.debug = env.DEBUG_NOSFLARE === 'true';
     this.doId = crypto.randomUUID();
     this.region = 'unknown';
     this.doName = 'unknown';
@@ -110,7 +112,7 @@ export class RelayWebSocket implements DurableObject {
 
   // Alarm handler - called when scheduled alarm fires
   async alarm(): Promise<void> {
-    console.log(`Alarm triggered for DO ${this.doName}`);
+    console.log(JSON.stringify({ event: 'alarm_triggered', doName: this.doName }));
 
     const now = Date.now();
     const idleTime = now - this.lastActivityTime;
@@ -119,11 +121,13 @@ export class RelayWebSocket implements DurableObject {
     const activeWebSockets = this.state.getWebSockets();
     const activeCount = activeWebSockets.length;
 
-    console.log(`DO ${this.doName} - Active WebSockets: ${activeCount}, Idle time: ${idleTime}ms`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'alarm_stats', doName: this.doName, activeWebSockets: activeCount, idleTimeMs: idleTime }));
+    }
 
     // If no active connections, clean up and don't reschedule
     if (activeCount === 0) {
-      console.log(`Cleaning up DO ${this.doName} - no active connections`);
+      console.log(JSON.stringify({ event: 'do_cleanup', doName: this.doName, reason: 'no_active_connections' }));
       await this.cleanup();
       // Don't set another alarm - let the DO be evicted
       return;
@@ -132,12 +136,16 @@ export class RelayWebSocket implements DurableObject {
     // If still active, schedule next cleanup check
     const nextAlarm = now + this.IDLE_TIMEOUT;
     await this.state.storage.setAlarm(nextAlarm);
-    console.log(`Next alarm scheduled for DO ${this.doName} in ${this.IDLE_TIMEOUT}ms`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'alarm_rescheduled', doName: this.doName, nextAlarmInMs: this.IDLE_TIMEOUT }));
+    }
   }
 
   // Cleanup method to clear caches and sessions
   private async cleanup(): Promise<void> {
-    console.log(`Running cleanup for DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'cleanup_start', doName: this.doName }));
+    }
 
     // Clear in-memory caches
     this.queryCache.clear();
@@ -152,7 +160,9 @@ export class RelayWebSocket implements DurableObject {
     // Clean up orphaned subscription storage data
     await this.cleanupOrphanedSubscriptions();
 
-    console.log(`Cleanup complete for DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'cleanup_complete', doName: this.doName }));
+    }
   }
 
   // Remove orphaned subscription data from storage
@@ -185,7 +195,7 @@ export class RelayWebSocket implements DurableObject {
 
       if (keysToDelete.length > 0) {
         await this.state.storage.delete(keysToDelete);
-        console.log(`Cleaned up ${keysToDelete.length} orphaned subscription entries`);
+        console.log(JSON.stringify({ event: 'orphaned_subscriptions_cleaned', doName: this.doName, count: keysToDelete.length }));
       }
     } catch (error) {
       console.error('Error cleaning up orphaned subscriptions:', error);
@@ -200,7 +210,9 @@ export class RelayWebSocket implements DurableObject {
     if (existingAlarm === null) {
       const alarmTime = Date.now() + this.IDLE_TIMEOUT;
       await this.state.storage.setAlarm(alarmTime);
-      console.log(`Scheduled first alarm for DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'first_alarm_scheduled', doName: this.doName }));
+      }
     }
   }
 
@@ -271,7 +283,9 @@ export class RelayWebSocket implements DurableObject {
 
     // Check if identical query is in flight (deduplication)
     if (this.activeQueries.has(cacheKey)) {
-      console.log('Returning in-flight query result (deduplication)');
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'query_dedup', doName: this.doName }));
+      }
       return await this.activeQueries.get(cacheKey)!;
     }
 
@@ -285,10 +299,14 @@ export class RelayWebSocket implements DurableObject {
         // Check if the cached response has expired (max-age not enforced by Cache API internally)
         const cachedDate = globalCached.headers.get('X-Cache-Time');
         if (cachedDate && Date.now() - parseInt(cachedDate) > 300000) {
-          console.log('Global cache entry expired, deleting');
+          if (this.debug) {
+            console.log(JSON.stringify({ event: 'global_cache_expired', doName: this.doName }));
+          }
           await globalCache.delete(globalCacheKey);
         } else {
-          console.log('Returning globally cached query result');
+          if (this.debug) {
+            console.log(JSON.stringify({ event: 'global_cache_hit', doName: this.doName }));
+          }
           const result = await globalCached.json() as QueryResult;
 
           // Also update local cache for faster subsequent access
@@ -311,7 +329,9 @@ export class RelayWebSocket implements DurableObject {
     // Check local cache
     const cached = this.queryCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.QUERY_CACHE_TTL) {
-      console.log('Returning locally cached query result');
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'local_cache_hit', doName: this.doName, accessCount: cached.accessCount }));
+      }
       // Update access tracking
       cached.accessCount++;
       cached.lastAccessed = Date.now();
@@ -353,7 +373,9 @@ export class RelayWebSocket implements DurableObject {
           }
         });
         await globalCache.put(globalCacheKey, response);
-        console.log('Stored query result in global cache');
+        if (this.debug) {
+          console.log(JSON.stringify({ event: 'global_cache_stored', doName: this.doName }));
+        }
       } catch (error) {
         console.error('Error storing in global cache:', error);
         // Continue even if global cache storage fails
@@ -398,7 +420,9 @@ export class RelayWebSocket implements DurableObject {
         this.removeFromCacheIndex(key);
       }
 
-      console.log(`Evicted ${toRemove} low-scoring cache entries (LFU)`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'cache_evicted', doName: this.doName, evictedCount: toRemove }));
+      }
     }
   }
 
@@ -494,7 +518,9 @@ export class RelayWebSocket implements DurableObject {
     }
 
     if (keysToInvalidate.size > 0) {
-      console.log(`Invalidated ${keysToInvalidate.size} local cache entries for event ${event.id} (kind:${event.kind}, author:${event.pubkey.substring(0, 8)}...)`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'cache_invalidated', doName: this.doName, eventId: event.id, kind: event.kind, count: keysToInvalidate.size }));
+      }
     }
   }
 
@@ -522,7 +548,9 @@ export class RelayWebSocket implements DurableObject {
     this.region = url.searchParams.get('region') || this.region || 'unknown';
     const colo = url.searchParams.get('colo') || 'default';
 
-    console.log(`WebSocket connection to DO: ${this.doName} (region: ${this.region}, colo: ${colo})`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'ws_connect', doName: this.doName, region: this.region, colo: colo }));
+    }
 
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
@@ -569,7 +597,9 @@ export class RelayWebSocket implements DurableObject {
     this.lastActivityTime = Date.now();
     await this.scheduleAlarmIfNeeded();
 
-    console.log(`New WebSocket session: ${sessionId} on DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'ws_session_created', doName: this.doName, sessionId: sessionId }));
+    }
 
     return new Response(null, {
       status: 101,
@@ -664,7 +694,9 @@ export class RelayWebSocket implements DurableObject {
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
     const attachment = ws.deserializeAttachment() as SessionAttachment | null;
     if (attachment) {
-      console.log(`WebSocket closed: ${attachment.sessionId} on DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'ws_closed', doName: this.doName, sessionId: attachment.sessionId }));
+      }
       this.sessions.delete(attachment.sessionId);
 
       // Clean up stored subscriptions
@@ -674,7 +706,9 @@ export class RelayWebSocket implements DurableObject {
       const activeWebSockets = this.state.getWebSockets();
       if (activeWebSockets.length === 0) {
         await this.state.storage.deleteAlarm();
-        console.log(`Deleted alarm for DO ${this.doName} - no active connections remaining`);
+        if (this.debug) {
+          console.log(JSON.stringify({ event: 'alarm_deleted', doName: this.doName, reason: 'no_active_connections' }));
+        }
       }
     }
   }
@@ -699,7 +733,9 @@ export class RelayWebSocket implements DurableObject {
 
       this.processedEvents.set(event.id, Date.now());
 
-      console.log(`DO ${this.doName} received event ${event.id} from ${sourceDoId}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'do_broadcast_received', doName: this.doName, eventId: event.id, sourceDoId: sourceDoId }));
+      }
 
       // Invalidate local query caches that match this event so stale results aren't served
       this.invalidateRelevantCaches(event);
@@ -801,7 +837,9 @@ export class RelayWebSocket implements DurableObject {
       // Rate limiting (skip for excluded kinds)
       if (!excludedRateLimitKinds.has(event.kind)) {
         if (!session.pubkeyRateLimiter.removeToken()) {
-          console.log(`Rate limit exceeded for pubkey ${event.pubkey}`);
+          if (this.debug) {
+            console.log(JSON.stringify({ event: 'rate_limited', doName: this.doName, pubkey: event.pubkey.substring(0, 8) }));
+          }
           this.sendOK(session.webSocket, event.id, false, 'rate-limited: slow down there chief');
           return;
         }
@@ -889,7 +927,9 @@ export class RelayWebSocket implements DurableObject {
         this.invalidateRelevantCaches(event);
 
         // Broadcast to all (local + remote)
-        console.log(`DO ${this.doName} broadcasting event ${event.id}`);
+        if (this.debug) {
+          console.log(JSON.stringify({ event: 'broadcasting_event', doName: this.doName, eventId: event.id }));
+        }
         await this.broadcastEvent(event);
       } else {
         this.sendOK(session.webSocket, event.id, false, result.message);
@@ -985,7 +1025,9 @@ export class RelayWebSocket implements DurableObject {
     // Save to storage
     await this.saveSubscriptions(session.id, session.subscriptions);
 
-    console.log(`New subscription ${subscriptionId} for session ${session.id} on DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'new_subscription', doName: this.doName, subscriptionId: subscriptionId, sessionId: session.id }));
+    }
 
     try {
       // Query events with caching
@@ -1021,7 +1063,9 @@ export class RelayWebSocket implements DurableObject {
       // Save updated subscriptions to storage
       await this.saveSubscriptions(session.id, session.subscriptions);
 
-      console.log(`Closed subscription ${subscriptionId} for session ${session.id} on DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'subscription_closed', doName: this.doName, subscriptionId: subscriptionId, sessionId: session.id }));
+      }
       this.sendClosed(session.webSocket, subscriptionId, 'Subscription closed');
     } else {
       this.sendClosed(session.webSocket, subscriptionId, 'Subscription not found');
@@ -1180,7 +1224,9 @@ export class RelayWebSocket implements DurableObject {
     }
 
     if (broadcastCount > 0) {
-      console.log(`Event ${event.id} broadcast to ${broadcastCount} local subscriptions on DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: 'broadcast_local', doName: this.doName, eventId: event.id, recipientCount: broadcastCount }));
+      }
     }
   }
 
@@ -1205,7 +1251,9 @@ export class RelayWebSocket implements DurableObject {
     );
 
     const successful = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`Event ${event.id} broadcast from DO ${this.doName} to ${successful}/${broadcasts.length} remote DOs`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: 'broadcast_remote', doName: this.doName, eventId: event.id, successful: successful, total: broadcasts.length }));
+    }
   }
 
   private async sendToSpecificDO(doName: string, event: NostrEvent): Promise<Response> {

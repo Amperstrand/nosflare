@@ -2918,7 +2918,7 @@ var {
 var GLOBAL_MAX_EVENTS = 500;
 var MAX_QUERY_COMPLEXITY = 1e3;
 var CHUNK_SIZE = 500;
-async function initializeDatabase(db) {
+async function initializeDatabase(db, debug) {
   const dropSession = db.withSession("first-primary");
   try {
     await dropSession.prepare(`
@@ -3073,7 +3073,9 @@ async function initializeDatabase(db) {
     ).first();
     const currentVersion = versionResult ? parseInt(versionResult.value) : 0;
     if (currentVersion < 5) {
-      console.log("Migrating to schema version 5: adding and populating tag columns in events table...");
+      if (debug) {
+        console.log("Migrating to schema version 5: adding and populating tag columns in events table...");
+      }
       const v5Columns = ["tag_p", "tag_e", "tag_a", "tag_t", "tag_d", "tag_r"];
       for (const col of v5Columns) {
         try {
@@ -3098,10 +3100,14 @@ async function initializeDatabase(db) {
           AND t.tag_name IN ('p', 'e', 'a', 't', 'd', 'r')
         )
       `).run();
-      console.log("Schema v5 migration completed");
+      if (debug) {
+        console.log("Schema v5 migration completed");
+      }
     }
     if (currentVersion < 6) {
-      console.log("Migrating to schema version 6: adding L/s/u tags and thread metadata...");
+      if (debug) {
+        console.log("Migrating to schema version 6: adding L/s/u tags and thread metadata...");
+      }
       const v6Columns = ["tag_L", "tag_s", "tag_u", "reply_to_event_id", "root_event_id", "content_preview"];
       for (const col of v6Columns) {
         try {
@@ -3135,7 +3141,9 @@ async function initializeDatabase(db) {
           AND t.tag_name IN ('L', 's', 'u', 'e')
         ) OR LENGTH(content) > 0
       `).run();
-      console.log("Schema v6 migration completed");
+      if (debug) {
+        console.log("Schema v6 migration completed");
+      }
     }
     await session.prepare(
       "INSERT OR REPLACE INTO system_config (key, value) VALUES ('schema_version', '6')"
@@ -5159,7 +5167,7 @@ var relay_worker_default = {
           return handleRelayInfoRequest(request);
         } else {
           ctx.waitUntil(
-            initializeDatabase(env.RELAY_DATABASE).catch((e) => console.error("DB init error:", e))
+            initializeDatabase(env.RELAY_DATABASE, env.DEBUG_NOSFLARE === "true").catch((e) => console.error("DB init error:", e))
           );
           return serveLandingPage();
         }
@@ -5234,6 +5242,7 @@ var _RelayWebSocket = class _RelayWebSocket {
     this.state = state;
     this.sessions = /* @__PURE__ */ new Map();
     this.env = env;
+    this.debug = env.DEBUG_NOSFLARE === "true";
     this.doId = crypto.randomUUID();
     this.region = "unknown";
     this.doName = "unknown";
@@ -5246,24 +5255,30 @@ var _RelayWebSocket = class _RelayWebSocket {
   }
   // Alarm handler - called when scheduled alarm fires
   async alarm() {
-    console.log(`Alarm triggered for DO ${this.doName}`);
+    console.log(JSON.stringify({ event: "alarm_triggered", doName: this.doName }));
     const now = Date.now();
     const idleTime = now - this.lastActivityTime;
     const activeWebSockets = this.state.getWebSockets();
     const activeCount = activeWebSockets.length;
-    console.log(`DO ${this.doName} - Active WebSockets: ${activeCount}, Idle time: ${idleTime}ms`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "alarm_stats", doName: this.doName, activeWebSockets: activeCount, idleTimeMs: idleTime }));
+    }
     if (activeCount === 0) {
-      console.log(`Cleaning up DO ${this.doName} - no active connections`);
+      console.log(JSON.stringify({ event: "do_cleanup", doName: this.doName, reason: "no_active_connections" }));
       await this.cleanup();
       return;
     }
     const nextAlarm = now + this.IDLE_TIMEOUT;
     await this.state.storage.setAlarm(nextAlarm);
-    console.log(`Next alarm scheduled for DO ${this.doName} in ${this.IDLE_TIMEOUT}ms`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "alarm_rescheduled", doName: this.doName, nextAlarmInMs: this.IDLE_TIMEOUT }));
+    }
   }
   // Cleanup method to clear caches and sessions
   async cleanup() {
-    console.log(`Running cleanup for DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "cleanup_start", doName: this.doName }));
+    }
     this.queryCache.clear();
     this.queryCacheIndex.clear();
     this.activeQueries.clear();
@@ -5271,7 +5286,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     this.processedEvents.clear();
     this.sessions.clear();
     await this.cleanupOrphanedSubscriptions();
-    console.log(`Cleanup complete for DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "cleanup_complete", doName: this.doName }));
+    }
   }
   // Remove orphaned subscription data from storage
   async cleanupOrphanedSubscriptions() {
@@ -5296,7 +5313,7 @@ var _RelayWebSocket = class _RelayWebSocket {
       }
       if (keysToDelete.length > 0) {
         await this.state.storage.delete(keysToDelete);
-        console.log(`Cleaned up ${keysToDelete.length} orphaned subscription entries`);
+        console.log(JSON.stringify({ event: "orphaned_subscriptions_cleaned", doName: this.doName, count: keysToDelete.length }));
       }
     } catch (error) {
       console.error("Error cleaning up orphaned subscriptions:", error);
@@ -5308,7 +5325,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     if (existingAlarm === null) {
       const alarmTime = Date.now() + this.IDLE_TIMEOUT;
       await this.state.storage.setAlarm(alarmTime);
-      console.log(`Scheduled first alarm for DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "first_alarm_scheduled", doName: this.doName }));
+      }
     }
   }
   // Storage helper methods for subscriptions
@@ -5363,7 +5382,9 @@ var _RelayWebSocket = class _RelayWebSocket {
   async getCachedOrQuery(filters, bookmark) {
     const cacheKey = JSON.stringify({ filters, bookmark });
     if (this.activeQueries.has(cacheKey)) {
-      console.log("Returning in-flight query result (deduplication)");
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "query_dedup", doName: this.doName }));
+      }
       return await this.activeQueries.get(cacheKey);
     }
     try {
@@ -5373,10 +5394,14 @@ var _RelayWebSocket = class _RelayWebSocket {
       if (globalCached) {
         const cachedDate = globalCached.headers.get("X-Cache-Time");
         if (cachedDate && Date.now() - parseInt(cachedDate) > 3e5) {
-          console.log("Global cache entry expired, deleting");
+          if (this.debug) {
+            console.log(JSON.stringify({ event: "global_cache_expired", doName: this.doName }));
+          }
           await globalCache.delete(globalCacheKey);
         } else {
-          console.log("Returning globally cached query result");
+          if (this.debug) {
+            console.log(JSON.stringify({ event: "global_cache_hit", doName: this.doName }));
+          }
           const result = await globalCached.json();
           this.queryCache.set(cacheKey, {
             result,
@@ -5393,7 +5418,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     }
     const cached = this.queryCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.QUERY_CACHE_TTL) {
-      console.log("Returning locally cached query result");
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "local_cache_hit", doName: this.doName, accessCount: cached.accessCount }));
+      }
       cached.accessCount++;
       cached.lastAccessed = Date.now();
       return cached.result;
@@ -5423,7 +5450,9 @@ var _RelayWebSocket = class _RelayWebSocket {
           }
         });
         await globalCache.put(globalCacheKey, response);
-        console.log("Stored query result in global cache");
+        if (this.debug) {
+          console.log(JSON.stringify({ event: "global_cache_stored", doName: this.doName }));
+        }
       } catch (error) {
         console.error("Error storing in global cache:", error);
       }
@@ -5455,7 +5484,9 @@ var _RelayWebSocket = class _RelayWebSocket {
         this.queryCache.delete(key);
         this.removeFromCacheIndex(key);
       }
-      console.log(`Evicted ${toRemove} low-scoring cache entries (LFU)`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "cache_evicted", doName: this.doName, evictedCount: toRemove }));
+      }
     }
   }
   // Add cache entry to index for efficient invalidation
@@ -5531,7 +5562,9 @@ var _RelayWebSocket = class _RelayWebSocket {
       this.removeFromCacheIndex(key);
     }
     if (keysToInvalidate.size > 0) {
-      console.log(`Invalidated ${keysToInvalidate.size} local cache entries for event ${event.id} (kind:${event.kind}, author:${event.pubkey.substring(0, 8)}...)`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "cache_invalidated", doName: this.doName, eventId: event.id, kind: event.kind, count: keysToInvalidate.size }));
+      }
     }
   }
   async fetch(request) {
@@ -5549,7 +5582,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     }
     this.region = url.searchParams.get("region") || this.region || "unknown";
     const colo = url.searchParams.get("colo") || "default";
-    console.log(`WebSocket connection to DO: ${this.doName} (region: ${this.region}, colo: ${colo})`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "ws_connect", doName: this.doName, region: this.region, colo }));
+    }
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     const sessionId = crypto.randomUUID();
@@ -5582,7 +5617,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     }
     this.lastActivityTime = Date.now();
     await this.scheduleAlarmIfNeeded();
-    console.log(`New WebSocket session: ${sessionId} on DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "ws_session_created", doName: this.doName, sessionId }));
+    }
     return new Response(null, {
       status: 101,
       webSocket: client
@@ -5656,13 +5693,17 @@ var _RelayWebSocket = class _RelayWebSocket {
   async webSocketClose(ws, code, reason, wasClean) {
     const attachment = ws.deserializeAttachment();
     if (attachment) {
-      console.log(`WebSocket closed: ${attachment.sessionId} on DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "ws_closed", doName: this.doName, sessionId: attachment.sessionId }));
+      }
       this.sessions.delete(attachment.sessionId);
       await this.deleteSubscriptions(attachment.sessionId);
       const activeWebSockets = this.state.getWebSockets();
       if (activeWebSockets.length === 0) {
         await this.state.storage.deleteAlarm();
-        console.log(`Deleted alarm for DO ${this.doName} - no active connections remaining`);
+        if (this.debug) {
+          console.log(JSON.stringify({ event: "alarm_deleted", doName: this.doName, reason: "no_active_connections" }));
+        }
       }
     }
   }
@@ -5681,7 +5722,9 @@ var _RelayWebSocket = class _RelayWebSocket {
         return new Response(JSON.stringify({ success: true, duplicate: true }));
       }
       this.processedEvents.set(event.id, Date.now());
-      console.log(`DO ${this.doName} received event ${event.id} from ${sourceDoId}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "do_broadcast_received", doName: this.doName, eventId: event.id, sourceDoId }));
+      }
       this.invalidateRelevantCaches(event);
       await this.broadcastToLocalSessions(event);
       const fiveMinutesAgo = Date.now() - 3e5;
@@ -5755,7 +5798,9 @@ var _RelayWebSocket = class _RelayWebSocket {
       }
       if (!excludedRateLimitKinds.has(event.kind)) {
         if (!session.pubkeyRateLimiter.removeToken()) {
-          console.log(`Rate limit exceeded for pubkey ${event.pubkey}`);
+          if (this.debug) {
+            console.log(JSON.stringify({ event: "rate_limited", doName: this.doName, pubkey: event.pubkey.substring(0, 8) }));
+          }
           this.sendOK(session.webSocket, event.id, false, "rate-limited: slow down there chief");
           return;
         }
@@ -5812,7 +5857,9 @@ var _RelayWebSocket = class _RelayWebSocket {
         this.sendOK(session.webSocket, event.id, true, result.message);
         this.processedEvents.set(event.id, Date.now());
         this.invalidateRelevantCaches(event);
-        console.log(`DO ${this.doName} broadcasting event ${event.id}`);
+        if (this.debug) {
+          console.log(JSON.stringify({ event: "broadcasting_event", doName: this.doName, eventId: event.id }));
+        }
         await this.broadcastEvent(event);
       } else {
         this.sendOK(session.webSocket, event.id, false, result.message);
@@ -5882,7 +5929,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     }
     session.subscriptions.set(subscriptionId, filters);
     await this.saveSubscriptions(session.id, session.subscriptions);
-    console.log(`New subscription ${subscriptionId} for session ${session.id} on DO ${this.doName}`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "new_subscription", doName: this.doName, subscriptionId, sessionId: session.id }));
+    }
     try {
       const result = await this.getCachedOrQuery(filters, session.bookmark);
       if (result.bookmark) {
@@ -5905,7 +5954,9 @@ var _RelayWebSocket = class _RelayWebSocket {
     const deleted = session.subscriptions.delete(subscriptionId);
     if (deleted) {
       await this.saveSubscriptions(session.id, session.subscriptions);
-      console.log(`Closed subscription ${subscriptionId} for session ${session.id} on DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "subscription_closed", doName: this.doName, subscriptionId, sessionId: session.id }));
+      }
       this.sendClosed(session.webSocket, subscriptionId, "Subscription closed");
     } else {
       this.sendClosed(session.webSocket, subscriptionId, "Subscription not found");
@@ -6022,7 +6073,9 @@ var _RelayWebSocket = class _RelayWebSocket {
       }
     }
     if (broadcastCount > 0) {
-      console.log(`Event ${event.id} broadcast to ${broadcastCount} local subscriptions on DO ${this.doName}`);
+      if (this.debug) {
+        console.log(JSON.stringify({ event: "broadcast_local", doName: this.doName, eventId: event.id, recipientCount: broadcastCount }));
+      }
     }
   }
   async broadcastToOtherDOs(event) {
@@ -6041,7 +6094,9 @@ var _RelayWebSocket = class _RelayWebSocket {
       ]))
     );
     const successful = results.filter((r) => r.status === "fulfilled").length;
-    console.log(`Event ${event.id} broadcast from DO ${this.doName} to ${successful}/${broadcasts.length} remote DOs`);
+    if (this.debug) {
+      console.log(JSON.stringify({ event: "broadcast_remote", doName: this.doName, eventId: event.id, successful, total: broadcasts.length }));
+    }
   }
   async sendToSpecificDO(doName, event) {
     try {
