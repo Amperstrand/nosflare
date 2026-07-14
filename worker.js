@@ -265,7 +265,38 @@ var blockedEventKinds = /* @__PURE__ */ new Set([
   1064
 ]);
 var allowedEventKinds = /* @__PURE__ */ new Set([
-  // ... kinds that are explicitly allowed
+  0,
+  // Profile metadata
+  1,
+  // Text notes (test result summaries)
+  3,
+  // Contact lists
+  4,
+  // Encrypted DMs (NIP-04)
+  5,
+  // Deletion
+  7,
+  // Reactions
+  1059,
+  // Gift wrap (NIP-44 sealed)
+  1063,
+  // NIP-94 file metadata (BlossomFS)
+  1984,
+  // Reporting
+  1985,
+  // Relay reviews
+  10002,
+  // Relay list metadata (NIP-65)
+  10050,
+  // DM relay list
+  24242,
+  // BUD-11 auth (Blossom)
+  25910,
+  // ContextVM
+  27235,
+  // NIP-98 HTTP auth
+  30078
+  // Application-specific data (test run index)
 ]);
 var blockedContent = /* @__PURE__ */ new Set([
   "~~ hello world! ~~"

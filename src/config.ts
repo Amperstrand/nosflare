@@ -102,10 +102,24 @@ export const blockedEventKinds = new Set([
   1064
 ]);
 
-// Allowed event kinds
-// Add comma-separated kinds Ex: 1, 2, 3
+// Allowed event kinds — when non-empty, ONLY these kinds are accepted (all pubkeys).
 export const allowedEventKinds = new Set<number>([
-  // ... kinds that are explicitly allowed
+  0,       // Profile metadata
+  1,       // Text notes (test result summaries)
+  3,       // Contact lists
+  4,       // Encrypted DMs (NIP-04)
+  5,       // Deletion
+  7,       // Reactions
+  1059,    // Gift wrap (NIP-44 sealed)
+  1063,    // NIP-94 file metadata (BlossomFS)
+  1984,    // Reporting
+  1985,    // Relay reviews
+  10002,   // Relay list metadata (NIP-65)
+  10050,   // DM relay list
+  24242,   // BUD-11 auth (Blossom)
+  25910,   // ContextVM
+  27235,   // NIP-98 HTTP auth
+  30078,   // Application-specific data (test run index)
 ]);
 
 // Blocked words or phrases (case-insensitive)
