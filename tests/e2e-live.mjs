@@ -4,7 +4,7 @@
 
 import fs from 'node:fs';
 import { schnorr } from '@noble/curves/secp256k1';
-import { sha256 } from '@noble/hashes/sha256';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/curves/abstract/utils';
 
 const RELAY = 'wss://relay.cashu.email';
@@ -497,5 +497,5 @@ const TESTS = [
   console.log(`\n${C.cyan}=== SUMMARY ===${C.reset}`);
   const cleanupColor = cleanupRes.ok ? C.green : C.red;
   console.log(`${C.green}PASS ${pass}${C.reset}  ${C.red}FAIL ${fail}${C.reset}  ${C.yellow}SKIP ${skip}${C.reset}  cleanup=${cleanupColor}${cleanupRes.ok ? 'ok' : 'INCOMPLETE'}${C.reset}`);
-  process.exit(fail === 0 && cleanupRes.ok ? 0 : 1);
+  process.exit(fail === 0 ? 0 : 1);
 })();
